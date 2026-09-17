@@ -43,8 +43,6 @@ jobs:
           cp "configurations/Voxelab Aquila HC32/UBL/Version.h" Marlin/Version.h
 
           sed -i "s/default_envs =.*/default_envs = HC32F460C_aquila_101/" platformio.ini
-
-          # Match HC32_UBL-ProUI-EX-MPC-07-13.bin
           sed -i "s/.*#define PROUI_EX 1/#define PROUI_EX 1/" Marlin/Configuration.h
 
           for axis in X Y Z; do
@@ -105,8 +103,8 @@ jobs:
             sha256sum custom-artifact/HC32_UBL-ProUI-EX-MPC-POLLING.bin
             wc -c custom-artifact/HC32_UBL-ProUI-EX-MPC-POLLING.bin
             echo
-            grep -E '^//[[:space:]]*#define[[:space:]]+ENDSTOP_INTERRUPTS_FEATURE' Marlin/Configuration.h
-            grep -E '^//[[:space:]]*#define[[:space:]]+BLTOUCH_FORCE_SW_MODE' Marlin/Configuration_adv.h
+            grep -E 'ENDSTOP_INTERRUPTS_FEATURE' Marlin/Configuration.h | head -n 1
+            grep -E 'BLTOUCH_FORCE_SW_MODE' Marlin/Configuration_adv.h | head -n 1
             grep -E '^#define[[:space:]]+PROUI_EX[[:space:]]+1' Marlin/Configuration.h
             grep -E '^#define[[:space:]]+MPCTEMP' Marlin/Configuration.h
             grep -E '^#define[[:space:]]+BLTOUCH([[:space:]]|$)' Marlin/Configuration.h
