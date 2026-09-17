@@ -1,0 +1,121 @@
+name: HC32 UBL ProUI-EX MPC Polling Build
+
+on:
+  push:
+    branches:
+      - hc32-ubl-proui-ex-mpc-polling
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build HC32 UBL ProUI-EX MPC Polling
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout July HC32 source
+        uses: actions/checkout@v7.0.0
+
+      - name: Select Python 3.13
+        uses: actions/setup-python@v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-pio-${{ hashFiles('**/lockfiles') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - name: Install PlatformIO
+        run: python3 -m pip install --upgrade pip wheel platformio
+
+      - name: Configure exact HC32 UBL ProUI-EX MPC target with polling endstops
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cp "configurations/Voxelab Aquila HC32/UBL/Configuration.h" Marlin/Configuration.h
+          cp "configurations/Voxelab Aquila HC32/UBL/Configuration_adv.h" Marlin/Configuration_adv.h
+          cp "configurations/Voxelab Aquila HC32/UBL/Version.h" Marlin/Version.h
+
+          sed -i "s/default_envs =.*/default_envs = HC32F460C_aquila_101/" platformio.ini
+
+          # Match HC32_UBL-ProUI-EX-MPC-07-13.bin
+          sed -i "s/.*#define PROUI_EX 1/#define PROUI_EX 1/" Marlin/Configuration.h
+
+          for axis in X Y Z; do
+            sed -i "s/.*#define INPUT_SHAPING_${axis}/\/\/#define INPUT_SHAPING_${axis}/" Marlin/Configuration_adv.h
+          done
+          sed -i "s/.*#define POWER_LOSS_RECOVERY/#define POWER_LOSS_RECOVERY/" Marlin/Configuration_adv.h
+          sed -i "s/.*#define PROUI_ITEM_PLR/#define PROUI_ITEM_PLR/" Marlin/Configuration.h
+          sed -i "s/.*#define SDCARD_READONLY/\/\/#define SDCARD_READONLY/" Marlin/Configuration_adv.h
+
+          sed -i "0,/^#define PIDTEMP/ s/.*#define PIDTEMP/\/\/#define PIDTEMP/" Marlin/Configuration.h
+          sed -i "s/.*#define MPCTEMP/#define MPCTEMP/" Marlin/Configuration.h
+
+          sed -i "s/.*#define PRINTCOUNTER/\/\/#define PRINTCOUNTER/" Marlin/Configuration.h
+          sed -i "s/.*#define EEPROM_CHITCHAT/\/\/#define EEPROM_CHITCHAT/" Marlin/Configuration.h
+          sed -i "s/.*#define USE_GRID_MESHVIEWER 1/\/\/#define USE_GRID_MESHVIEWER 1/" Marlin/Configuration.h
+
+          sed -i "s/.*#define TJC_DISPLAY/\/\/#define TJC_DISPLAY/" Marlin/Configuration.h
+          sed -i "s/.*#define REVERSE_ENCODER_DIRECTION/#define REVERSE_ENCODER_DIRECTION/" Marlin/Configuration.h
+
+          sed -i "s/^#define TEMP_SENSOR_0.*/#define TEMP_SENSOR_0 1/" Marlin/Configuration.h
+          sed -i "s/.*#define DEFAULT_AXIS_STEPS_PER_UNIT.*/#define DEFAULT_AXIS_STEPS_PER_UNIT { 80, 80, 400, 98 }/" Marlin/Configuration.h
+
+          # Single diagnostic behavior change: use polling instead of HC32 endstop interrupts.
+          sed -i "s/^[[:space:]]*#define ENDSTOP_INTERRUPTS_FEATURE/\/\/#define ENDSTOP_INTERRUPTS_FEATURE/" Marlin/Configuration.h
+
+          # Ensure SW mode is NOT enabled for this diagnostic build.
+          sed -i "s/^[[:space:]]*#define BLTOUCH_FORCE_SW_MODE/\/\/#define BLTOUCH_FORCE_SW_MODE/" Marlin/Configuration_adv.h
+
+          # Assertions: fail rather than produce the wrong firmware.
+          ! grep -Eq '^#define[[:space:]]+ENDSTOP_INTERRUPTS_FEATURE([[:space:]]|$)' Marlin/Configuration.h
+          ! grep -Eq '^#define[[:space:]]+BLTOUCH_FORCE_SW_MODE([[:space:]]|$)' Marlin/Configuration_adv.h
+          grep -Eq '^#define[[:space:]]+PROUI_EX[[:space:]]+1([[:space:]]|$)' Marlin/Configuration.h
+          grep -Eq '^#define[[:space:]]+MPCTEMP([[:space:]]|$)' Marlin/Configuration.h
+          ! grep -Eq '^#define[[:space:]]+PIDTEMP([[:space:]]|$)' Marlin/Configuration.h
+          ! grep -Eq '^#define[[:space:]]+INPUT_SHAPING_[XYZ]([[:space:]]|$)' Marlin/Configuration_adv.h
+          grep -Eq '^#define[[:space:]]+BLTOUCH([[:space:]]|$)' Marlin/Configuration.h
+          ! grep -Eq '^#define[[:space:]]+BIQU_MICROPROBE_V2([[:space:]]|$)' Marlin/Configuration.h
+
+      - name: Build firmware
+        run: pio run
+
+      - name: Package and verify firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p custom-artifact
+          BIN=$(find .pio/build/HC32F460C_aquila_101 -maxdepth 1 -type f -name '*.bin' -print -quit)
+          test -n "$BIN"
+          cp "$BIN" custom-artifact/HC32_UBL-ProUI-EX-MPC-POLLING.bin
+          test -s custom-artifact/HC32_UBL-ProUI-EX-MPC-POLLING.bin
+          {
+            echo "Base release: 2.1.3h-7-HC32"
+            echo "Reference target: HC32_UBL-ProUI-EX-MPC-07-13.bin"
+            echo "Diagnostic change: ENDSTOP_INTERRUPTS_FEATURE disabled"
+            echo "BLTOUCH_FORCE_SW_MODE: disabled"
+            echo "Environment: HC32F460C_aquila_101"
+            echo
+            sha256sum custom-artifact/HC32_UBL-ProUI-EX-MPC-POLLING.bin
+            wc -c custom-artifact/HC32_UBL-ProUI-EX-MPC-POLLING.bin
+            echo
+            grep -E '^//[[:space:]]*#define[[:space:]]+ENDSTOP_INTERRUPTS_FEATURE' Marlin/Configuration.h
+            grep -E '^//[[:space:]]*#define[[:space:]]+BLTOUCH_FORCE_SW_MODE' Marlin/Configuration_adv.h
+            grep -E '^#define[[:space:]]+PROUI_EX[[:space:]]+1' Marlin/Configuration.h
+            grep -E '^#define[[:space:]]+MPCTEMP' Marlin/Configuration.h
+            grep -E '^#define[[:space:]]+BLTOUCH([[:space:]]|$)' Marlin/Configuration.h
+          } | tee custom-artifact/BUILD-MANIFEST.txt
+
+      - name: Upload verified firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: HC32_UBL-ProUI-EX-MPC-POLLING
+          path: custom-artifact/
+          if-no-files-found: error
+          retention-days: 30
